@@ -5,17 +5,20 @@ import os
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
+from dotenv import load_dotenv
+
+# Подгружаем переменные из .env (для локального запуска)
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-# Берем токен из переменных окружения
+# Получаем токен из переменных окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в переменных окружения!")
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-
+dp = Dispatcher()  # НЕ передавать bot сюда
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
