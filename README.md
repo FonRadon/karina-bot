@@ -1,6 +1,6 @@
 # Karina Bot
 
-Бот на Aiogram 3.1.1 с webhook для Railway.
+Бот на Aiogram 3.3+ с webhook для Railway.
 
 ## Локальный запуск
 

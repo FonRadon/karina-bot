@@ -13,13 +13,11 @@ load_dotenv()  # загружаем .env локально
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не найден в переменных окружения!")
+if not BOT_TOKEN or not WEBHOOK_URL:
+    raise ValueError("BOT_TOKEN или WEBHOOK_URL не найдены в переменных окружения!")
 
-# Путь webhook
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 
-# Настройка логов
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
@@ -35,7 +33,7 @@ async def start_handler(message: types.Message):
 
 @dp.message()
 async def trigger_handler(message: types.Message):
-    # Если ответ на сообщение бота
+    # Ответ на сообщение бота
     if message.reply_to_message:
         if message.reply_to_message.from_user.id == (await bot.me()).id:
             await message.answer("Ой, что такое?)")
@@ -83,17 +81,31 @@ async def trigger_handler(message: types.Message):
 
 
 async def main():
-    PORT = int(os.environ.get("PORT", 8080))  # Railway предоставляет порт через env
+    PORT = int(os.environ.get("PORT", 8080))
     logging.info(f"Webhook установлен на {WEBHOOK_URL}{WEBHOOK_PATH}")
 
-    # Запуск webhook
-    await dp.start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        skip_updates=True,
-        host="0.0.0.0",
-        port=PORT
-    )
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(url=f"{WEBHOOK_URL}{WEBHOOK_PATH}")
+
+    # Запуск webhook сервера (Aiogram 3.3+)
+    from aiohttp import web
+
+    async def handle(request):
+        update = types.Update(**await request.json())
+        await dp.process_update(update)
+        return web.Response(text="OK")
+
+    app = web.Application()
+    app.router.add_post(WEBHOOK_PATH, handle)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logging.info(f"Webhook слушает на порту {PORT}")
+
+    while True:
+        await asyncio.sleep(3600)  # держим сервер живым
 
 
 if __name__ == "__main__":
