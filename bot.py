@@ -1,25 +1,28 @@
-import asyncio
+import os
 import logging
 import random
-import os
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from dotenv import load_dotenv
 
-# Подгружаем переменные из .env (для локального запуска)
+# Подгружаем .env для локальной разработки
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-# Получаем токен из переменных окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в переменных окружения!")
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()  # НЕ передавать bot сюда
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # URL, который даст Railway, например: https://имя-проекта.up.railway.app
 
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+# --- Обработчики ---
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     await message.answer("Приветики всем, я Кариночка 💋")
@@ -27,13 +30,11 @@ async def start_handler(message: types.Message):
 
 @dp.message()
 async def trigger_handler(message: types.Message):
-    # Если ответ на сообщение бота
     if message.reply_to_message:
         if message.reply_to_message.from_user.id == (await bot.me()).id:
             await message.answer("Ой, что такое?)")
             return
 
-    # Если тегнули бота
     if message.entities:
         for entity in message.entities:
             if entity.type == "mention":
@@ -53,7 +54,6 @@ async def trigger_handler(message: types.Message):
                 f for f in os.listdir("media")
                 if f.endswith((".jpg", ".png", ".gif", ".mp4", ".webm"))
             ]
-
             if not media_files:
                 return
 
@@ -73,10 +73,27 @@ async def trigger_handler(message: types.Message):
         except Exception as e:
             logging.error(e)
 
+# --- Aiohttp сервер для webhook ---
+async def handle(request):
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.process_update(update)
+    return web.Response(text="OK")
 
-async def main():
-    await dp.start_polling(bot)
+app = web.Application()
+app.router.add_post(WEBHOOK_PATH, handle)
 
+async def on_startup():
+    await bot.delete_webhook()
+    await bot.set_webhook(f"{WEBHOOK_URL}{WEBHOOK_PATH}")
+    logging.info(f"Webhook установлен на {WEBHOOK_URL}{WEBHOOK_PATH}")
+
+async def on_cleanup(app):
+    await bot.delete_webhook()
+    await bot.session.close()
+
+app.on_startup.append(lambda app: on_startup())
+app.on_cleanup.append(lambda app: on_cleanup(app))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
