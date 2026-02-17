@@ -1,40 +1,47 @@
-import os
+import asyncio
 import logging
 import random
-from aiohttp import web
+import os
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
+from aiogram.types import FSInputFile
 from dotenv import load_dotenv
 
-# Подгружаем .env для локальной разработки
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO)
+load_dotenv()  # загружаем .env локально
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в переменных окружения!")
 
+# Путь webhook
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # URL, который даст Railway, например: https://имя-проекта.up.railway.app
+
+# Настройка логов
+logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Обработчики ---
+MEDIA_FOLDER = "media"
+
+
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
-    await message.answer("Приветики всем, я Кариночка 💋")
+    await message.answer("Приветики всем! Я Кариночка 💋")
 
 
 @dp.message()
 async def trigger_handler(message: types.Message):
+    # Если ответ на сообщение бота
     if message.reply_to_message:
         if message.reply_to_message.from_user.id == (await bot.me()).id:
             await message.answer("Ой, что такое?)")
             return
 
+    # Если тегнули бота
     if message.entities:
         for entity in message.entities:
             if entity.type == "mention":
@@ -51,15 +58,16 @@ async def trigger_handler(message: types.Message):
     if "лярва" in text:
         try:
             media_files = [
-                f for f in os.listdir("media")
+                f for f in os.listdir(MEDIA_FOLDER)
                 if f.endswith((".jpg", ".png", ".gif", ".mp4", ".webm"))
             ]
+
             if not media_files:
                 return
 
             random_file = random.choice(media_files)
-            file_path = os.path.join("media", random_file)
-            file = types.FSInputFile(file_path)
+            file_path = os.path.join(MEDIA_FOLDER, random_file)
+            file = FSInputFile(file_path)
 
             if random_file.endswith((".jpg", ".png")):
                 await message.answer_photo(file)
@@ -73,27 +81,20 @@ async def trigger_handler(message: types.Message):
         except Exception as e:
             logging.error(e)
 
-# --- Aiohttp сервер для webhook ---
-async def handle(request):
-    data = await request.json()
-    update = types.Update(**data)
-    await dp.process_update(update)
-    return web.Response(text="OK")
 
-app = web.Application()
-app.router.add_post(WEBHOOK_PATH, handle)
-
-async def on_startup():
-    await bot.delete_webhook()
-    await bot.set_webhook(f"{WEBHOOK_URL}{WEBHOOK_PATH}")
+async def main():
+    PORT = int(os.environ.get("PORT", 8080))  # Railway предоставляет порт через env
     logging.info(f"Webhook установлен на {WEBHOOK_URL}{WEBHOOK_PATH}")
 
-async def on_cleanup(app):
-    await bot.delete_webhook()
-    await bot.session.close()
+    # Запуск webhook
+    await dp.start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        skip_updates=True,
+        host="0.0.0.0",
+        port=PORT
+    )
 
-app.on_startup.append(lambda app: on_startup())
-app.on_cleanup.append(lambda app: on_cleanup(app))
 
 if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    asyncio.run(main())
