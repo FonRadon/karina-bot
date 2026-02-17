@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, MessageEntity
 from aiogram.enums import ParseMode
 import asyncio
 
@@ -49,12 +49,12 @@ def get_media_type(file_path: Path):
     """Определяет тип медиафайла по расширению"""
     ext = file_path.suffix.lower()
     
-    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
+    if ext in ['.jpg', '.jpeg', '.png', '.bmp', '.webp']:
         return 'photo'
     elif ext in ['.mp4', '.avi', '.mov', '.mkv', '.webm']:
         return 'video'
     elif ext == '.gif':
-        return 'animation'  # для gif как анимации
+        return 'animation'
     else:
         return 'unknown'
 
@@ -79,13 +79,16 @@ async def cmd_help(message: types.Message):
 @dp.message(F.reply_to_message)
 async def handle_reply(message: types.Message):
     # Проверяем, что отвечают на сообщение бота
-    if message.reply_to_message.from_user.id == bot.id:
+    if message.reply_to_message and message.reply_to_message.from_user.id == bot.id:
         await message.reply("это я, кариночка 💋")
 
 # Обработчик упоминания бота (тег)
-@dp.message(F.entities.contains(types.MessageEntityType.MENTION))
+@dp.message(F.text)
 async def handle_mention(message: types.Message):
     # Проверяем, упомянули ли нашего бота
+    if not message.entities:
+        return
+    
     bot_username = (await bot.get_me()).username
     
     for entity in message.entities:
