@@ -1,112 +1,152 @@
-import asyncio
-import logging
-import random
 import os
-
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
-from aiogram.types import FSInputFile
+import random
+import logging
+from pathlib import Path
 from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import FSInputFile
+from aiogram.enums import ParseMode
+import asyncio
 
-load_dotenv()  # загружаем .env локально
+# Загружаем переменные окружения
+load_dotenv()
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-if not BOT_TOKEN or not WEBHOOK_URL:
-    raise ValueError("BOT_TOKEN или WEBHOOK_URL не найдены в переменных окружения!")
-
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-
+# Включаем логирование
 logging.basicConfig(level=logging.INFO)
 
+# Получаем токен из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден в .env файле!")
+
+# Путь к папке с медиафайлами
+MEDIA_FOLDER = Path("media")
+
+# Инициализируем бота и диспетчер
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-MEDIA_FOLDER = "media"
+# Функция для получения случайного файла из папки media
+def get_random_media_file():
+    """Возвращает случайный файл из папки media"""
+    try:
+        # Получаем все файлы из папки media
+        files = [f for f in MEDIA_FOLDER.iterdir() if f.is_file()]
+        
+        if not files:
+            return None
+        
+        # Выбираем случайный файл
+        random_file = random.choice(files)
+        return random_file
+    except Exception as e:
+        logging.error(f"Ошибка при получении файла: {e}")
+        return None
 
+# Функция для определения типа файла
+def get_media_type(file_path: Path):
+    """Определяет тип медиафайла по расширению"""
+    ext = file_path.suffix.lower()
+    
+    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
+        return 'photo'
+    elif ext in ['.mp4', '.avi', '.mov', '.mkv', '.webm']:
+        return 'video'
+    elif ext == '.gif':
+        return 'animation'  # для gif как анимации
+    else:
+        return 'unknown'
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
-    await message.answer("Приветики всем! Я Кариночка 💋")
+# Обработчик команды /start
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer("оу, приветики 💋")
 
+# Обработчик команды /help
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    await message.answer(
+        "✨ *Команды бота:*\n"
+        "/start - приветствие\n"
+        "/help - эта справка\n\n"
+        "📝 *Секретное слово:* лярва\n"
+        "(Напиши его и получишь сюрприз!)",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-@dp.message()
-async def trigger_handler(message: types.Message):
-    # Ответ на сообщение бота
-    if message.reply_to_message:
-        if message.reply_to_message.from_user.id == (await bot.me()).id:
-            await message.answer("Ой, что такое?)")
-            return
+# Обработчик ответов на сообщения бота
+@dp.message(F.reply_to_message)
+async def handle_reply(message: types.Message):
+    # Проверяем, что отвечают на сообщение бота
+    if message.reply_to_message.from_user.id == bot.id:
+        await message.reply("это я, кариночка 💋")
 
-    # Если тегнули бота
-    if message.entities:
-        for entity in message.entities:
-            if entity.type == "mention":
-                mention = message.text[entity.offset:entity.offset + entity.length]
-                if mention.lower() == "@radonkarina_bot":
-                    await message.answer("Ой, что такое?)")
-                    return
-
-    if not message.text:
-        return
-
-    text = message.text.lower()
-
-    if "лярва" in text:
-        try:
-            media_files = [
-                f for f in os.listdir(MEDIA_FOLDER)
-                if f.endswith((".jpg", ".png", ".gif", ".mp4", ".webm"))
-            ]
-
-            if not media_files:
+# Обработчик упоминания бота (тег)
+@dp.message(F.entities.contains(types.MessageEntityType.MENTION))
+async def handle_mention(message: types.Message):
+    # Проверяем, упомянули ли нашего бота
+    bot_username = (await bot.get_me()).username
+    
+    for entity in message.entities:
+        if entity.type == "mention":
+            mention = message.text[entity.offset:entity.offset + entity.length]
+            if mention == f"@{bot_username}":
+                await message.reply("ой, что такое?")
                 return
 
-            random_file = random.choice(media_files)
-            file_path = os.path.join(MEDIA_FOLDER, random_file)
-            file = FSInputFile(file_path)
+# Обработчик текстовых сообщений с проверкой на слово "лярва"
+@dp.message(F.text)
+async def check_larva_word(message: types.Message):
+    # Проверяем, содержит ли сообщение слово "лярва" в любом регистре
+    text = message.text.lower().strip()
+    
+    if "лярва" in text:
+        # Получаем случайный файл
+        random_file = get_random_media_file()
+        
+        if random_file:
+            try:
+                # Создаем объект FSInputFile для отправки
+                media_file = FSInputFile(random_file)
+                
+                # Определяем тип файла и отправляем соответствующим методом
+                media_type = get_media_type(random_file)
+                
+                if media_type == 'photo':
+                    await message.answer_photo(
+                        photo=media_file,
+                        caption="🌸 Держи фоточку!"
+                    )
+                elif media_type == 'video':
+                    await message.answer_video(
+                        video=media_file,
+                        caption="🎥 Держи видосик!"
+                    )
+                elif media_type == 'animation':  # для GIF
+                    await message.answer_animation(
+                        animation=media_file,
+                        caption="✨ Держи гифку!"
+                    )
+                else:
+                    # Если тип не определен, отправляем как документ
+                    await message.answer_document(
+                        document=media_file,
+                        caption="📎 Держи файлик!"
+                    )
+                    
+                logging.info(f"Отправлен файл: {random_file.name}")
+                
+            except Exception as e:
+                logging.error(f"Ошибка при отправке файла {random_file}: {e}")
+                await message.answer("😢 Ой, что-то пошло не так с файликом...")
+        else:
+            await message.answer("😢 Ой, а у меня закончились медиафайлы...")
 
-            if random_file.endswith((".jpg", ".png")):
-                await message.answer_photo(file)
-            elif random_file.endswith(".gif"):
-                await message.answer_animation(file)
-            elif random_file.endswith(".mp4"):
-                await message.answer_video(file)
-            elif random_file.endswith(".webm"):
-                await message.answer_document(file)
-
-        except Exception as e:
-            logging.error(e)
-
-
+# Запуск бота
 async def main():
-    PORT = int(os.environ.get("PORT", 8080))
-    logging.info(f"Webhook установлен на {WEBHOOK_URL}{WEBHOOK_PATH}")
-
-    await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_webhook(url=f"{WEBHOOK_URL}{WEBHOOK_PATH}")
-
-    # Запуск webhook сервера (Aiogram 3.3+)
-    from aiohttp import web
-
-    async def handle(request):
-        update = types.Update(**await request.json())
-        await dp.process_update(update)
-        return web.Response(text="OK")
-
-    app = web.Application()
-    app.router.add_post(WEBHOOK_PATH, handle)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    logging.info(f"Webhook слушает на порту {PORT}")
-
-    while True:
-        await asyncio.sleep(3600)  # держим сервер живым
-
+    logging.info("Бот запущен!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
